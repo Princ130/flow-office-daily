@@ -1,4 +1,3 @@
-
 import { rows, appendRow, logAction } from "./excel-engine.js";
 import { validateLimit } from "./platform-manager.js";
 import { num } from "./cash-manager.js";
@@ -107,7 +106,7 @@ export function addTransaction(date, form) {
     "Balance Due": due,
 
     "Status": status,
-    "Payment Mode": "Cash",
+    "Payment Mode": isReceive ? form.mode : "Cash",
     "Limit Usage": limitUsage,
 
     "Created At": new Date().toISOString()
