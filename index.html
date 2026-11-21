@@ -1,0 +1,573 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101827">
+  <title>CashFlow Office</title>
+
+  <link rel="stylesheet" href="./css/main.css">
+  <link rel="stylesheet" href="./css/dashboard.css">
+  <link rel="stylesheet" href="./css/transactions.css">
+  <link rel="stylesheet" href="./css/responsive.css">
+
+  <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
+</head>
+
+<body>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <!-- SETUP SCREEN -->
+  <main id="setupScreen" class="setup-screen">
+    <section class="setup-card">
+      <div class="brand-mark">CF</div>
+      <p class="eyebrow">OFFICE CASH MANAGEMENT</p>
+      <h1>CashFlow Office</h1>
+      <p class="muted">Load your office workbook or create a fresh one to begin.</p>
+
+      <div class="setup-actions">
+        <button id="openWorkbookBtn" class="button button-primary">
+          Open existing Excel workbook
+        </button>
+
+        <button id="createWorkbookBtn" class="button button-secondary">
+          Create a new workbook
+        </button>
+
+        <input id="workbookInput" type="file" accept=".xlsx,.xls" hidden>
+      </div>
+
+      <div class="notice">
+        <strong>Local-first:</strong>
+        your workbook stays on your computer. Do not upload office records or customer information to GitHub.
+      </div>
+
+      <p class="tiny muted">
+        Best experience: latest Chrome or Microsoft Edge.
+        If direct file saving is unavailable, the app will download an updated workbook.
+      </p>
+    </section>
+  </main>
+
+  <!-- MAIN APPLICATION -->
+  <div id="appShell" class="app-shell hidden">
+
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <span class="brand-mark small">CF</span>
+        <span>CashFlow <b>Office</b></span>
+      </div>
+
+      <nav>
+  <button class="nav-link active" data-view="dashboard">
+    <span>▦</span> Dashboard
+  </button>
+
+  <button class="nav-link" data-action="receive">
+    <span>＋</span> Receive Money
+  </button>
+
+  <!-- <button class="nav-link" data-action="send">
+    <span>↗</span> Send to Head
+  </button> -->
+
+  <button class="nav-link" data-view="transactions">
+    <span>⇄</span> Transactions
+  </button>
+
+  <button class="nav-link" data-view="limits">
+    <span>◫</span> Platform limits
+  </button>
+
+  <button class="nav-link" data-view="closing">
+    <span>▣</span> Day closing
+  </button>
+</nav>
+
+      <div class="sidebar-bottom">
+        <span class="status-dot"></span>
+        <span id="workbookStatus">Workbook loaded</span>
+
+        <button id="saveWorkbookBtn" class="button button-sidebar">
+          Save workbook
+        </button>
+
+        <button id="switchWorkbookBtn" class="text-button">
+          Switch workbook
+        </button>
+      </div>
+    </aside>
+
+    <section class="main-area">
+
+      <!-- TOP BAR -->
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">CASH CONTROL</p>
+          <h2 id="pageTitle">Dashboard</h2>
+        </div>
+
+        <div class="topbar-actions">
+          <span id="todayLabel" class="date-pill"></span>
+          <button id="exportWorkbookBtn" class="button button-outline">
+            Export Excel
+          </button>
+        </div>
+      </header>
+
+      <!-- OPENING DAY SETUP -->
+      <section id="daySetupBanner" class="day-setup-banner hidden">
+        <div>
+          <p class="eyebrow">NEW BUSINESS DAY</p>
+          <h3>Verify today's opening balances</h3>
+          <p class="muted">
+            Yesterday's closing figures are suggested below.
+            Confirm the physical count before starting.
+          </p>
+        </div>
+
+        <form id="openingForm" class="opening-form">
+          <div class="form-grid three">
+            <label>
+              Opening notes (₹)
+              <input name="openingCash" type="number" min="0" step="0.01" required>
+            </label>
+
+            <label>
+              Opening coins (₹)
+              <input name="openingCoins" type="number" min="0" step="0.01" required>
+            </label>
+
+            <label>
+              Working day
+              <input name="businessDate" type="date" required>
+            </label>
+          </div>
+
+          <div class="form-grid three">
+            <label>
+              Platform 1 limit (₹)
+              <input name="p1Limit" type="number" min="0" step="0.01" required>
+            </label>
+
+            <label>
+              Platform 2 limit (₹)
+              <input name="p2Limit" type="number" min="0" step="0.01" required>
+            </label>
+
+            <label>
+              Platform 3 limit (₹)
+              <input name="p3Limit" type="number" min="0" step="0.01" required>
+            </label>
+          </div>
+
+          <div id="carryForwardNote" class="carry-note"></div>
+
+          <button class="button button-primary" type="submit">
+            Confirm & start business day
+          </button>
+        </form>
+      </section>
+
+      <!-- DASHBOARD -->
+      <section id="dashboardView" class="view">
+
+        <div class="metric-grid">
+          <article class="metric-card accent">
+            <span>Cash in hand now</span>
+            <strong id="cashBalance">₹0.00</strong>
+            <small>Notes + coins</small>
+          </article>
+
+          <article class="metric-card">
+            <span>Today's cash received</span>
+            <strong id="cashIn">₹0.00</strong>
+            <small>Cash inflows</small>
+          </article>
+
+          <article class="metric-card">
+            <span>Today's cash paid out</span>
+            <strong id="cashOut">₹0.00</strong>
+            <small>Cash outflows</small>
+          </article>
+
+          <article class="metric-card">
+            <span>Pending customer dues</span>
+            <strong id="pendingDues">₹0.00</strong>
+            <small>Outstanding balance</small>
+          </article>
+        </div>
+
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">LIMIT MONITOR</p>
+            <h3>Platform usage</h3>
+          </div>
+
+          <button class="text-button" data-goto="limits">
+            Manage limits →
+          </button>
+        </div>
+
+        <div id="platformCards" class="platform-grid"></div>
+
+        <div class="content-grid">
+
+          <section class="panel">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">LATEST ACTIVITY</p>
+                <h3>Recent transactions</h3>
+              </div>
+
+              <button class="text-button" data-goto="transactions">
+                View all →
+              </button>
+            </div>
+
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>S.No.</th>
+                    <th>Policy / Name</th>
+                    <th>Platform</th>
+                    <th>Net cash flow</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody id="recentTransactions"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <!-- QUICK ACTIONS -->
+          <section class="panel quick-panel">
+            <p class="eyebrow">QUICK ACTIONS</p>
+            <h3>Record a transaction</h3>
+
+            <button class="quick-action" data-quick="receive">
+              <span class="quick-icon positive">＋</span>
+              <span>
+                <b>Receive money</b>
+                <small>Cash received from customer</small>
+              </span>
+            </button>
+
+            <button class="quick-action" data-quick="send">
+              <span class="quick-icon negative">↗</span>
+              <span>
+                <b>Send to head</b>
+                <small>Record cash sent to the head</small>
+              </span>
+            </button>
+          </section>
+
+        </div>
+      </section>
+
+      <!-- TRANSACTIONS -->
+      <section id="transactionsView" class="view hidden">
+        <div class="panel">
+
+          <div class="panel-heading wrap-heading">
+            <div>
+              <p class="eyebrow">REGISTER</p>
+              <h3>Transaction register</h3>
+            </div>
+
+            <button id="newTransactionBtn" class="button button-primary">
+              ＋ Add transaction
+            </button>
+          </div>
+
+          <div class="toolbar">
+            <input
+              id="transactionSearch"
+              type="search"
+              placeholder="Search policy, name or details..."
+            >
+
+            <select id="platformFilter">
+              <option value="">All platforms</option>
+              <option>P1</option>
+              <option>P2</option>
+              <option>P3</option>
+            </select>
+
+            <select id="statusFilter">
+              <option value="">All statuses</option>
+              <option>Pending Due</option>
+              <option>Settled Transaction</option>
+            </select>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>S.No.</th>
+                  <th>Policy / Name</th>
+                  <th>Details</th>
+                  <th>Type</th>
+                  <th>Platform</th>
+                  <th>Required</th>
+                  <th>Received</th>
+                  <th>Refunded</th>
+                  <th>Net flow</th>
+                  <th>Due</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+
+              <tbody id="transactionsBody"></tbody>
+            </table>
+          </div>
+
+          <div class="table-footer">
+            <span id="recordCount">0 records</span>
+
+            <div>
+              <button id="prevPage" class="button button-small button-outline">
+                Previous
+              </button>
+
+              <span id="pageInfo">Page 1</span>
+
+              <button id="nextPage" class="button button-small button-outline">
+                Next
+              </button>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- PLATFORM LIMITS -->
+      <section id="limitsView" class="view hidden">
+
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">INDEPENDENT LIMITS</p>
+            <h3>Platform limit control</h3>
+            <p class="muted">
+              Each platform is tracked separately.
+              A transaction on P1 does not consume P2 or P3 limit.
+            </p>
+          </div>
+        </div>
+
+        <div id="limitsDetail" class="platform-grid"></div>
+
+        <section class="panel limit-note">
+          <h3>Limit calculation</h3>
+          <p>
+            Remaining limit = daily limit − limit consumed by transactions
+            assigned to that platform. Customer transactions consume the
+            required amount. Send to Head transactions do not consume
+            platform limits.
+          </p>
+        </section>
+
+      </section>
+
+      <!-- DAY CLOSING -->
+      <section id="closingView" class="view hidden">
+        <div class="panel closing-panel">
+
+          <p class="eyebrow">END OF DAY</p>
+          <h3>Close business day</h3>
+
+          <p class="muted">
+            Enter the physical count. The app compares it with the expected cash balance.
+          </p>
+
+          <form id="closingForm">
+
+            <div class="form-grid two">
+              <label>
+                Actual closing notes (₹)
+                <input name="closingCash" type="number" min="0" step="0.01" required>
+              </label>
+
+              <label>
+                Actual closing coins (₹)
+                <input name="closingCoins" type="number" min="0" step="0.01" required>
+              </label>
+            </div>
+
+            <div class="reconciliation-box">
+              <span>Expected cash</span>
+              <strong id="expectedClosing">₹0.00</strong>
+
+              <span>Difference (actual − expected)</span>
+              <strong id="closingDifference">₹0.00</strong>
+            </div>
+
+            <label>
+              Closing remarks (optional)
+              <textarea
+                name="remarks"
+                rows="3"
+                placeholder="Explain any cash difference or notes for the next shift"
+              ></textarea>
+            </label>
+
+            <button class="button button-danger" type="submit">
+              Close and lock this day
+            </button>
+
+          </form>
+        </div>
+      </section>
+
+    </section>
+  </div>
+
+  <!-- TRANSACTION MODAL -->
+  <dialog id="transactionDialog" class="modal">
+
+    <form id="transactionForm" method="dialog">
+
+      <div class="modal-heading">
+        <div>
+          <p class="eyebrow">NEW ENTRY</p>
+          <h3 id="transactionModalTitle">Add transaction</h3>
+        </div>
+
+        <button
+          type="button"
+          id="closeTransactionDialog"
+          class="icon-button"
+          aria-label="Close"
+        >
+          ×
+        </button>
+      </div>
+
+      <div class="form-grid two">
+
+        <!-- TRANSACTION TYPE -->
+        <label>
+          Transaction type
+          <select name="type" id="transactionType">
+            <option value="receive">Money received</option>
+            <option value="send">Send to head</option>
+          </select>
+        </label>
+
+        <!-- PLATFORM -->
+        <label id="platformField">
+          Platform
+          <select name="platform">
+            <option value="P1">Platform 1</option>
+            <option value="P2">Platform 2</option>
+            <option value="P3">Platform 3</option>
+          </select>
+        </label>
+
+        <!-- POLICY -->
+        <label id="policyField">
+          Policy number / customer name
+          <input
+            name="policy"
+            maxlength="120"
+            placeholder="Policy number or customer name"
+          >
+        </label>
+
+        <!-- HEAD RECIPIENT -->
+        <label id="headNameField" class="hidden">
+          Recipient / Head name
+          <input
+            name="headName"
+            type="text"
+            maxlength="120"
+            placeholder="Enter recipient name"
+          >
+        </label>
+
+        <!-- DESCRIPTION -->
+        <label>
+          Transaction details (optional)
+          <input
+            name="details"
+            maxlength="240"
+            placeholder="Brief transaction description"
+          >
+        </label>
+
+        <!-- AMOUNT -->
+        <label>
+          <span id="requiredAmountLabel">Required amount (₹)</span>
+          <input
+            name="required"
+            type="number"
+            min="0.01"
+            step="0.01"
+            value="0"
+            required
+          >
+        </label>
+
+        <!-- RECEIVED -->
+        <label id="receivedField">
+          Received amount (₹)
+          <input
+            name="received"
+            type="number"
+            min="0"
+            step="0.01"
+            value="0"
+          >
+        </label>
+
+        <!-- REFUNDED -->
+        <label id="refundedField">
+          Refunded amount (₹)
+          <input
+            name="refunded"
+            type="number"
+            min="0"
+            step="0.01"
+            value="0"
+          >
+        </label>
+
+        <!-- PAYMENT MODE -->
+        <label id="paymentModeField">
+          Payment mode
+          <select name="mode">
+            <option value="Cash">Cash</option>
+          </select>
+        </label>
+
+      </div>
+
+      <p id="transactionFormHint" class="form-hint">
+        Enter the customer policy details, platform and payment amounts.
+      </p>
+
+      <div class="modal-actions">
+        <button
+          type="button"
+          id="cancelTransaction"
+          class="button button-outline"
+        >
+          Cancel
+        </button>
+
+        <button type="submit" class="button button-primary">
+          Save transaction
+        </button>
+      </div>
+
+    </form>
+  </dialog>
+
+  <script type="module" src="./js/app.js"></script>
+
+</body>
+</html>
