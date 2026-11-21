@@ -44,9 +44,9 @@ export function addTransaction(date, form) {
       throw new Error("Refunded amount cannot exceed received amount.");
     }
 
-    if (form.mode !== "Cash") {
-      throw new Error("Only cash transactions are supported.");
-    }
+    if (!["Cash", "Other"].includes(form.mode)) {
+  throw new Error("Select a valid payment mode.");
+}
 
     net = received - refunded;
     due = Math.max(0, required - received);
