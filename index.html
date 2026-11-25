@@ -1,3 +1,4 @@
+
 <!doctype html>
 <html lang="en">
 <head>
@@ -21,7 +22,9 @@
   <!-- SETUP SCREEN -->
   <main id="setupScreen" class="setup-screen">
     <section class="setup-card">
-      <div class="brand-mark">CF</div>
+      <div class="brand-mark">
+        <!-- CF  -->
+        <img src="ps32.png" alt="CF"></div>
       <p class="eyebrow">OFFICE CASH MANAGEMENT</p>
       <h1>CashFlow Office</h1>
       <p class="muted">Load your office workbook or create a fresh one to begin.</p>
@@ -55,7 +58,10 @@
 
     <aside class="sidebar">
       <div class="sidebar-brand">
-        <span class="brand-mark small">CF</span>
+        <span class="brand-mark small">
+          <!-- CF -->
+           <img src="ps32.png" alt="CF">
+        </span>
         <span>CashFlow <b>Office</b></span>
       </div>
 
@@ -74,6 +80,13 @@
 
   <button class="nav-link" data-view="transactions">
     <span>⇄</span> Transactions
+  </button>
+  <button class="nav-link" data-view="head-ledger">
+    <span>⇄</span> Head Ledger
+  </button>
+
+  <button class="nav-link" data-view="office-summary">
+    <span>₹</span> Receipts &amp; Payments
   </button>
 
   <button class="nav-link" data-view="limits">
@@ -116,14 +129,23 @@
         </div>
       </header>
 
+      <!-- MISSED DAY RECOVERY -->
+      <section id="missedDayBanner" class="missed-day-banner hidden" role="alert">
+        <div class="missed-day-icon">!</div>
+        <div>
+          <p class="eyebrow">PREVIOUS BUSINESS DAY STILL OPEN</p>
+          <h3>Resume and close <span id="missedDayDate"></span></h3>
+          <p>You are working in the unclosed business day. Do not start a new day until this day's transactions and actual closing notes/coins have been reconciled. If you already handled today's cash outside the app, first reconstruct the previous day's end-of-day count.</p>
+        </div>
+      </section>
+
       <!-- OPENING DAY SETUP -->
       <section id="daySetupBanner" class="day-setup-banner hidden">
         <div>
-          <p class="eyebrow">NEW BUSINESS DAY</p>
-          <h3>Verify today's opening balances</h3>
+          <p class="eyebrow">DAILY OPENING CHECK</p>
+          <h3>Confirm today's opening figures</h3>
           <p class="muted">
-            Yesterday's closing figures are suggested below.
-            Confirm the physical count before starting.
+            Physical cash and coins may be suggested from the previous close. Enter the actual balance currently available in each platform for today.
           </p>
         </div>
 
@@ -147,18 +169,37 @@
 
           <div class="form-grid three">
             <label>
-              Platform 1 limit (₹)
+              Platform 1 daily limit (₹)
               <input name="p1Limit" type="number" min="0" step="0.01" required>
             </label>
 
             <label>
-              Platform 2 limit (₹)
+              Platform 2 daily limit (₹)
               <input name="p2Limit" type="number" min="0" step="0.01" required>
             </label>
 
             <label>
-              Platform 3 limit (₹)
+              Remitr daily limit (₹)
               <input name="p3Limit" type="number" min="0" step="0.01" required>
+            </label>
+          </div>
+
+          <h4 class="opening-subheading">Today's actual virtual balances</h4>
+          <p class="muted">Enter the balance currently available in each platform. These are entered afresh every business day.</p>
+          <div class="form-grid three">
+            <label>
+              Platform 1 balance (₹)
+              <input name="p1Balance" type="number" min="0" step="0.01" required>
+            </label>
+
+            <label>
+              Platform 2 balance (₹)
+              <input name="p2Balance" type="number" min="0" step="0.01" required>
+            </label>
+
+            <label>
+              Remitr balance (₹)
+              <input name="p3Balance" type="number" min="0" step="0.01" required>
             </label>
           </div>
 
@@ -255,11 +296,11 @@
               </span>
             </button>
 
-            <button class="quick-action" data-quick="send">
+            <button class="quick-action" data-head-action="Send">
               <span class="quick-icon negative">↗</span>
               <span>
                 <b>Send to head</b>
-                <small>Record cash sent to the head</small>
+                <small>Send cash or virtual balance to a head</small>
               </span>
             </button>
           </section>
@@ -282,6 +323,17 @@
             </button>
           </div>
 
+          <section class="panel office-entry-panel">
+            <div class="panel-heading"><div><p class="eyebrow">FOLLOW-UP REQUIRED</p><h3>Pending customer refunds</h3></div><span id="pendingRefundsCount" class="muted tiny">0 pending</span></div>
+            <div class="table-wrap"><table><thead><tr><th>Date</th><th>Customer</th><th>Overpayment</th><th>Cash refunded</th><th>Notes returned</th><th>Coins returned</th><th>Still pending</th><th>Action</th></tr></thead><tbody id="pendingRefundsBody"></tbody></table></div>
+          </section>
+
+          <section class="panel office-entry-panel customer-receivables-panel">
+            <div class="panel-heading wrap-heading"><div><p class="eyebrow">CUSTOMER FOLLOW-UP</p><h3>Customer receivables — pending payments</h3><span id="customerReceivablesCount" class="muted tiny">0 pending</span></div><button id="customerReceiptBtn" class="button button-primary">＋ Record customer payment</button></div>
+            <p class="muted">Each payment is linked to one original transaction. Choose the exact transaction so another customer's balance is never reduced by mistake.</p>
+            <div class="table-wrap"><table><thead><tr><th>Original date</th><th>Customer</th><th>Transaction ID</th><th>Original due</th><th>Received later</th><th>Still due</th><th>Action</th></tr></thead><tbody id="customerReceivablesBody"></tbody></table></div>
+          </section>
+
           <div class="toolbar">
             <input
               id="transactionSearch"
@@ -299,6 +351,9 @@
             <select id="statusFilter">
               <option value="">All statuses</option>
               <option>Pending Due</option>
+              <option>Refund Pending</option>
+              <option>Partially Refunded</option>
+              <option>Refunded Excess</option>
               <option>Settled Transaction</option>
             </select>
           </div>
@@ -313,11 +368,13 @@
                   <th>Type</th>
                   <th>Platform</th>
                   <th>Required</th>
-                  <th>Received</th>
-                  <th>Refunded</th>
+                  <th>RECD (Cash)</th>
+                  <th>CHQ/QR</th>
+                  <th>Cash refunded</th>
                   <th>Net flow</th>
                   <th>Due</th>
                   <th>Status</th>
+                  <th>Refund action</th>
                 </tr>
               </thead>
 
@@ -342,6 +399,129 @@
           </div>
 
         </div>
+      </section>
+
+      <!-- HEAD LEDGER -->
+      <section id="head-ledgerView" class="view hidden">
+        <section class="panel">
+          <div class="panel-heading wrap-heading">
+            <div><p class="eyebrow">SEPARATE CASH &amp; VIRTUAL ACCOUNTS</p><h3>Head balances</h3></div>
+            <div class="office-form-actions">
+              <button id="sendToHeadBtn" class="button button-primary">Send to head</button>
+              <button id="receiveFromHeadBtn" class="button button-outline">Receive from head</button>
+            </div>
+          </div>
+          <p class="muted">Cash and virtual transfers are tracked separately. Partial returns carry forward; excess returns become advances and automatically offset future transfers of the matching settlement type.</p>
+          <div class="table-wrap">
+            <table><thead><tr><th>Head</th><th>Cash return due</th><th>Virtual return due</th><th>Cash advance</th><th>Virtual advance</th></tr></thead><tbody id="headBalancesBody"></tbody></table>
+          </div>
+        </section>
+        <section class="panel office-entry-panel">
+          <div class="panel-heading"><div><p class="eyebrow">APPEND-ONLY HISTORY</p><h3>Head Ledger entries</h3></div><span id="headLedgerCount" class="muted tiny">0 entries</span></div>
+          <div class="table-wrap"><table><thead><tr><th>Date</th><th>Head</th><th>Action</th><th>Mode</th><th>Platform</th><th>Amount</th><th>Details</th></tr></thead><tbody id="headLedgerBody"></tbody></table></div>
+        </section>
+      </section>
+
+      <!-- RECEIPTS & PAYMENTS -->
+      <section id="office-summaryView" class="view hidden">
+        <div class="metric-grid office-metric-grid">
+          <article class="metric-card">
+            <span>Customer Collection</span>
+            <strong id="automaticCustomerCollection">₹0.00</strong>
+            <small>Automatic from customer transactions</small>
+          </article>
+          <article class="metric-card">
+            <span>Customer Due Received</span>
+            <strong id="automaticCustomerDueReceipts">₹0.00</strong>
+            <small>Collections against earlier outstanding transactions</small>
+          </article>
+          <article class="metric-card">
+            <span>Head Payments</span>
+            <strong id="automaticHeadPayments">₹0.00</strong>
+            <small>Automatic from head transfers</small>
+          </article>
+          <article class="metric-card">
+            <span>Received from Heads</span>
+            <strong id="automaticHeadReceipts">₹0.00</strong>
+            <small>Automatic from Head Ledger</small>
+          </article>
+          <article class="metric-card">
+            <span>Customer Refunds</span>
+            <strong id="automaticCustomerRefunds">₹0.00</strong>
+            <small>Cash returned to customers</small>
+          </article>
+          <article class="metric-card">
+            <span>Manual Receipts</span>
+            <strong id="manualReceiptsTotal">₹0.00</strong>
+            <small>Entries added on this page</small>
+          </article>
+          <article class="metric-card">
+            <span>Manual Payments</span>
+            <strong id="manualPaymentsTotal">₹0.00</strong>
+            <small>Entries added on this page</small>
+          </article>
+        </div>
+
+        <div class="office-totals-row">
+          <div><span>Total Receipts</span><strong id="officeReceiptsTotal">₹0.00</strong></div>
+          <div><span>Total Payments</span><strong id="officePaymentsTotal">₹0.00</strong></div>
+        </div>
+
+        <section class="panel office-entry-panel">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">MANUAL REGISTER</p>
+              <h3 id="officeEntryFormTitle">Add a Receipts &amp; Payments entry</h3>
+            </div>
+          </div>
+
+          <form id="officeEntryForm">
+            <input type="hidden" name="entryId">
+            <div class="form-grid four">
+              <label>
+                Section
+                <select name="section" required>
+                  <option value="Receipt">Receipts</option>
+                  <option value="Payment">Payments</option>
+                </select>
+              </label>
+              <label>
+                Category
+                <input name="category" maxlength="100" placeholder="e.g. Rent, Water, Office expense" required>
+              </label>
+              <label>
+                Amount (₹)
+                <input name="amount" type="number" min="0.01" step="0.01" required>
+              </label>
+              <label>
+                Details (optional)
+                <input name="details" maxlength="240" placeholder="Short note">
+              </label>
+            </div>
+            <div class="office-form-actions">
+              <button id="cancelOfficeEdit" type="button" class="button button-outline hidden">Cancel edit</button>
+              <button id="officeEntrySubmit" type="submit" class="button button-primary">Add entry</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="panel office-entry-panel">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">DAILY ENTRIES</p>
+              <h3>Manual Receipts &amp; Payments</h3>
+            </div>
+            <span id="officeEntryCount" class="muted tiny">0 manual entries</span>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr><th>Section</th><th>Category</th><th>Amount</th><th>Details</th><th>Actions</th></tr>
+              </thead>
+              <tbody id="officeEntriesBody"></tbody>
+            </table>
+          </div>
+        </section>
       </section>
 
       <!-- PLATFORM LIMITS -->
@@ -383,6 +563,33 @@
             Enter the physical count. The app compares it with the expected cash balance.
           </p>
 
+          <section class="outstanding-summary" aria-labelledby="outstandingTitle">
+            <div class="outstanding-heading">
+              <div>
+                <p class="eyebrow">CARRY-FORWARD SUMMARY</p>
+                <h3 id="outstandingTitle">Unsettled records</h3>
+                <p class="muted">Open balances that remain after today's entries. These carry forward until settled.</p>
+              </div>
+            </div>
+            <div class="outstanding-grid">
+              <article class="outstanding-advances">
+                <div class="outstanding-card-top">
+                  <div>
+                    <span class="outstanding-kicker">HEAD ADVANCES</span><h4><div class="ababica">Pending</div> </h4>
+                  </div><strong id="headAdvanceTotal">₹0.00</strong></div>
+                <div class="outstanding-grid">
+                  <section class="outstanding-group"><h5>Cash advances — offset future virtual sends</h5><div id="headCashAdvanceList" class="outstanding-list"></div></section>
+                  <section class="outstanding-group"><h5>Virtual advances — offset future cash sends</h5><div id="headVirtualAdvanceList" class="outstanding-list"></div></section>
+                </div>
+              </article>
+              <article class="outstanding-card to-receive">
+                <div class="outstanding-card-top"><div><span class="outstanding-kicker">AMOUNT DUE TO OFFICE</span><h4>To receive</h4></div><strong id="outstandingReceiveTotal">₹0.00</strong></div>
+                <section class="outstanding-group"><h5>Customers — balance due</h5><div id="customerReceiveList" class="outstanding-list"></div></section>
+                <section class="outstanding-group"><h5>Heads — cash to receive</h5><div id="headReceiveList" class="outstanding-list"></div></section>
+              </article>
+            </div>
+          </section>
+
           <form id="closingForm">
 
             <div class="form-grid two">
@@ -398,11 +605,14 @@
             </div>
 
             <div class="reconciliation-box">
-              <span>Expected cash</span>
-              <strong id="expectedClosing">₹0.00</strong>
-
-              <span>Difference (actual − expected)</span>
-              <strong id="closingDifference">₹0.00</strong>
+              <span>Expected closing cash</span>
+              <strong id="expectedClosingCash">₹0.00</strong>
+              <span>Cash difference (actual − expected)</span>
+              <strong id="closingCashDifference">₹0.00</strong>
+              <span>Expected closing coins</span>
+              <strong id="expectedClosingCoins">₹0.00</strong>
+              <span>Coins difference (actual − expected)</span>
+              <strong id="closingCoinsDifference">₹0.00</strong>
             </div>
 
             <label>
@@ -453,7 +663,6 @@
           Transaction type
           <select name="type" id="transactionType">
             <option value="receive">Money received</option>
-            <option value="send">Send to head</option>
           </select>
         </label>
 
@@ -463,7 +672,7 @@
           <select name="platform">
             <option value="P1">Platform 1</option>
             <option value="P2">Platform 2</option>
-            <option value="P3">Platform 3</option>
+            <option value="P3">Remitr</option>
           </select>
         </label>
 
@@ -511,39 +720,17 @@
           >
         </label>
 
-        <!-- RECEIVED -->
+        <!-- PHYSICAL CASH RECEIVED (RECD) -->
         <label id="receivedField">
-          Received amount (₹)
-          <input
-            name="received"
-            type="number"
-            min="0"
-            step="0.01"
-            value="0"
-          >
+          RECD — physical cash received (₹)
+          <input name="received" type="number" min="0" step="0.01" value="0" required>
         </label>
 
-        <!-- REFUNDED -->
-        <label id="refundedField">
-          Refunded amount (₹)
-          <input
-            name="refunded"
-            type="number"
-            min="0"
-            step="0.01"
-            value="0"
-          >
+        <!-- NON-CASH RECEIPT -->
+        <label id="qrReceivedField">
+          CHQ / QR received (₹)
+          <input name="qrReceived" type="number" min="0" step="0.01" value="0">
         </label>
-
-        <!-- PAYMENT MODE -->
-        <label id="paymentModeField">
-          Payment mode
-          <select name="mode">
-            <option value="Cash">Cash</option>
-            <option value="Other">Other</option>
-          </select>
-        </label>
-
       </div>
 
       <p id="transactionFormHint" class="form-hint">
@@ -564,6 +751,53 @@
         </button>
       </div>
 
+    </form>
+  </dialog>
+
+  <dialog id="customerReceiptDialog" class="modal">
+    <form id="customerReceiptForm" method="dialog">
+      <div class="modal-heading"><div><p class="eyebrow">CUSTOMER RECEIVABLES</p><h3>Receive pending customer payment</h3></div><button type="button" id="closeCustomerReceipt" class="icon-button" aria-label="Close">×</button></div>
+      <label>Customer's original transaction<select id="customerReceiptTransaction" required></select></label>
+      <p id="customerReceiptDue" class="form-hint">Outstanding balance will appear here.</p>
+      <div class="form-grid two">
+        <label>Cash received now (₹)<input id="customerReceiptCash" type="number" min="0" step="0.01" value="0"></label>
+        <label>CHQ / QR received now (₹)<input id="customerReceiptQr" type="number" min="0" step="0.01" value="0"></label>
+        <label id="customerReceiptPlatformField" class="hidden">Platform<select id="customerReceiptPlatform"><option value="P1">Platform 1</option><option value="P2">Platform 2</option><option value="P3">Remitr</option></select></label>
+      </div>
+      <p class="form-hint">The receipt date is today’s active business date. The original transaction date stays unchanged. You can split the payment between cash and CHQ/QR.</p>
+      <div class="modal-actions"><button type="button" id="cancelCustomerReceipt" class="button button-outline">Cancel</button><button type="submit" class="button button-primary">Save receipt</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="refundDialog" class="modal">
+    <div class="modal-heading"><div><p class="eyebrow">CUSTOMER OVERPAYMENT</p><h3>Return excess in cash</h3></div></div>
+    <p id="refundPromptText" class="form-hint"></p>
+    <div id="partialRefundField" class="hidden">
+      <label>Total cash returned now (₹)<input id="partialRefundAmount" type="number" min="0" step="0.01" required placeholder="Enter total refund amount"></label>
+      <label>Coins included in this refund (₹)<input id="refundCoinsAmount" type="number" min="0" step="0.01" required value="0" placeholder="Enter 0 if no coins were returned"></label>
+      <p class="form-hint">The remaining amount is treated as notes. Coins are deducted from the day's coin balance separately.</p>
+      <div class="modal-actions"><button id="cancelRefundPrompt" type="button" class="button button-outline">Cancel</button><button id="confirmPartialRefund" type="button" class="button button-primary">Confirm return</button></div>
+    </div>
+    <div id="refundChoiceActions" class="modal-actions">
+      <button id="cancelRefundPromptMain" type="button" class="button button-outline">Cancel</button>
+      <button id="refundPartiallyBtn" type="button" class="button button-outline">Returned partially</button>
+      <button id="refundFullyBtn" type="button" class="button button-primary">Returned</button>
+    </div>
+  </dialog>
+
+  <dialog id="headEntryDialog" class="modal">
+    <form id="headEntryForm" method="dialog">
+      <div class="modal-heading"><div><p class="eyebrow">HEAD LEDGER</p><h3 id="headEntryTitle">Record head transfer</h3></div><button id="closeHeadEntry" type="button" class="icon-button" aria-label="Close">×</button></div>
+      <div class="form-grid two">
+        <label>Action<select name="action" id="headAction"><option value="Send">Send to head</option><option value="Receive">Receive from head</option></select></label>
+        <label>Head name<input name="head" maxlength="120" required placeholder="Enter head name"></label>
+        <label>Transfer mode<select name="mode" id="headMode"><option value="Cash">Cash</option><option value="Virtual">Virtual</option></select></label>
+        <label id="headPlatformField" class="hidden">Platform<select name="platform"><option value="P1">Platform 1</option><option value="P2">Platform 2</option><option value="P3">Remitr</option></select></label>
+        <label>Amount (₹)<input name="amount" type="number" min="0.01" step="0.01" required></label>
+        <label>Details (optional)<input name="details" maxlength="240" placeholder="Short note"></label>
+      </div>
+      <p class="form-hint">A cash transfer from office creates a virtual-return obligation. A virtual transfer creates a cash-return obligation. Partial returns and advances are carried forward automatically.</p>
+      <div class="modal-actions"><button id="cancelHeadEntry" type="button" class="button button-outline">Cancel</button><button type="submit" class="button button-primary">Save ledger entry</button></div>
     </form>
   </dialog>
 
