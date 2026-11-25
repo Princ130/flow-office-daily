@@ -3,22 +3,37 @@ const SHEETS = {
   "Daily Summary": [
     "Date", "Opening Cash", "Opening Coins", "Closing Cash",
     "Closing Coins", "Expected Closing", "Cash Difference",
+    "Expected Cash", "Cash Difference Separate", "Expected Coins", "Coins Difference",
     "Total Cash In", "Total Cash Out", "Status", "Remarks"
   ],
   "Transactions": [
     "Transaction ID", "Date", "Daily Serial", "Policy / Name",
     "Details", "Type", "Platform", "Required Amount",
     "Received Amount", "Refunded Amount", "Net Cash Flow",
-    "Balance Due", "Status", "Payment Mode", "Limit Usage", "Created At"
+    "Balance Due", "Status", "Payment Mode", "Limit Usage", "Created At",
+    "Cash Received", "CHQ/QR Received", "Overpayment Amount", "Refund Pending"
   ],
   "Platform Limits": [
-    "Date", "Platform", "Daily Limit", "Used Limit", "Remaining Limit"
+    "Date", "Platform", "Daily Limit", "Used Limit", "Remaining Limit",
+    "Opening Balance"
   ],
   "Denominations": [
     "Date", "Opening Notes", "Opening Coins", "Closing Notes", "Closing Coins"
   ],
   "Settings": ["Key", "Value"],
-  "Audit Log": ["Timestamp", "Action", "Reference", "Details"]
+  "Audit Log": ["Timestamp", "Action", "Reference", "Details"],
+  "Daily Office Entries": [
+    "Entry ID", "Date", "Section", "Category", "Amount", "Details", "Created At", "Updated At"
+  ],
+  "Head Ledger": [
+    "Entry ID", "Date", "Head", "Action", "Mode", "Platform", "Amount", "Details", "Created At"
+  ],
+  "Refund Ledger": [
+    "Refund ID", "Date", "Transaction ID", "Customer", "Amount", "Notes Amount", "Coins Amount", "Created At"
+  ],
+  "Customer Receipts": [
+    "Receipt ID", "Date", "Transaction ID", "Customer", "Amount", "Cash Amount", "CHQ/QR Amount", "Platform", "Created At"
+  ]
 };
 
 let workbook = null;
@@ -31,14 +46,22 @@ function sheetFromRows(data) {
 }
 
 function ensureSheets(wb) {
-  // Ensure all six original worksheets exist.
+  // Ensure every application worksheet exists and safely add newly introduced
+  // columns to older workbooks without discarding existing rows or values.
   for (const [name, headers] of Object.entries(SHEETS)) {
     if (!wb.Sheets[name]) {
-      XLSX.utils.book_append_sheet(
-        wb,
-        sheetFromRows([headers]),
-        name
-      );
+      XLSX.utils.book_append_sheet(wb, sheetFromRows([headers]), name);
+      continue;
+    }
+    const existingAoa = XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, defval: "", raw: true });
+    const existingHeaders = (existingAoa[0] || []).map(String).filter(Boolean);
+    const mergedHeaders = [...existingHeaders, ...headers.filter(h => !existingHeaders.includes(h))];
+    if (mergedHeaders.length !== existingHeaders.length) {
+      const existingRows = existingAoa.slice(1);
+      wb.Sheets[name] = sheetFromRows([
+        mergedHeaders,
+        ...existingRows.map(row => mergedHeaders.map((_, index) => row[index] ?? ""))
+      ]);
     }
   }
 
@@ -180,743 +203,405 @@ function buildDailyRegister() {
 
   const dailyRecords = rows("Daily Summary");
   const transactions = rows("Transactions");
-
+  const platformRows = rows("Platform Limits");
+  const officeEntries = rows("Daily Office Entries");
+  const headEntries = rows("Head Ledger");
+  const refundEntries = rows("Refund Ledger");
+  const customerReceipts = rows("Customer Receipts");
   const number = value => Number(value) || 0;
   const dateKey = value => String(value || "").slice(0, 10);
   const moneyFormat = '₹#,##0.00;[Red](₹#,##0.00)';
-
+  const baseSheets = new Set(Object.keys(SHEETS));
   const dates = [...new Set([
     ...dailyRecords.map(r => dateKey(r.Date)),
-    ...transactions.map(t => dateKey(t.Date))
+    ...transactions.map(t => dateKey(t.Date)),
+    ...officeEntries.map(entry => dateKey(entry.Date)),
+    ...headEntries.map(entry => dateKey(entry.Date)),
+    ...refundEntries.map(entry => dateKey(entry.Date)),
+    ...customerReceipts.map(entry => dateKey(entry.Date))
   ].filter(Boolean))].sort();
-
-  const data = [];
-  const merges = [];
-  const styles = [];
-  const rowHeights = {};
-
-  const GREEN = "245B35";
-  const DARK_GREEN = "183F29";
-  const LIGHT_GREEN = "E2EFDA";
-  const PALE_GREEN = "F3F8EF";
-  const GOLD = "D9E8B5";
-  const WHITE = "FFFFFF";
-  const TEXT = "24352A";
-  const MUTED = "647568";
-  const BORDER = "C8D8C5";
-
-  function addRow(values = []) {
-    const row = Array(10).fill("");
-    values.forEach((value, index) => {
-      row[index] = value ?? "";
-    });
-
-    data.push(row);
-    return data.length - 1;
-  }
-
-  function mergeRow(row, startCol, endCol) {
-    merges.push({
-      s: { r: row, c: startCol },
-      e: { r: row, c: endCol }
-    });
-  }
-
-  function mergePairs(row) {
-    [[0, 1], [2, 3], [4, 5], [6, 7], [8, 9]]
-      .forEach(([start, end]) => mergeRow(row, start, end));
-  }
-
-  function styleCell(row, col, style) {
-    styles.push({ row, col, style });
-  }
-
-  function styleRange(row, startCol, endCol, style) {
-    for (let col = startCol; col <= endCol; col++) {
-      styleCell(row, col, style);
-    }
-  }
-
-  function setHeight(row, height) {
-    rowHeights[row] = height;
-  }
-
-  function formatDate(date) {
-    if (!date) return "";
-
+  const generatedDayNames = new Set(dates.map(date => {
     const [year, month, day] = date.split("-").map(Number);
-
-    return new Date(year, month - 1, day).toLocaleDateString("en-IN", {
-      day: "2-digit",
-      month: "long",
-      year: "numeric"
-    });
-  }
-
-  function moneyStyle(fill = WHITE, color = TEXT, size = 10) {
-    return {
-      font: {
-        name: "Aptos",
-        sz: size,
-        bold: true,
-        color: { rgb: color }
-      },
-      fill: { fgColor: { rgb: fill } },
-      alignment: {
-        horizontal: "center",
-        vertical: "center"
-      },
-      numFmt: moneyFormat,
-      border: {
-        bottom: { style: "thin", color: { rgb: BORDER } }
-      }
-    };
-  }
-
-  dates.forEach((date, dayIndex) => {
-    const day = dailyRecords.find(r => dateKey(r.Date) === date) || {};
-
-    const dayTransactions = transactions
-      .filter(t => dateKey(t.Date) === date)
-      .sort((a, b) =>
-        number(a["Daily Serial"]) - number(b["Daily Serial"])
-      );
-
-    const openingNotes = number(day["Opening Cash"]);
-    const openingCoins = number(day["Opening Coins"]);
-
-    const isClosed = day.Status === "Closed";
-
-    const closingNotes = isClosed
-      ? number(day["Closing Cash"])
-      : "—";
-
-    const closingCoins = isClosed
-      ? number(day["Closing Coins"])
-      : "—";
-
-    const cashReceived = dayTransactions.reduce((sum, t) => {
-      return sum + (
-        t["Payment Mode"] === "Cash"
-          ? Math.max(0, number(t["Net Cash Flow"]))
-          : 0
-      );
-    }, 0);
-
-    const cashPaidOut = dayTransactions.reduce((sum, t) => {
-      return sum + (
-        t["Payment Mode"] === "Cash"
-          ? Math.max(0, -number(t["Net Cash Flow"]))
-          : 0
-      );
-    }, 0);
-
-    const currentCash = openingNotes + openingCoins
-      + cashReceived - cashPaidOut;
-
-    let runningBalance = openingNotes + openingCoins;
-
-    // --------------------------------------------------
-    // 1. MAIN TITLE
-    // --------------------------------------------------
-
-    let r = addRow(["CASHFLOW OFFICE"]);
-    mergeRow(r, 0, 9);
-
-    styleRange(r, 0, 9, {
-      font: {
-        name: "Aptos Display",
-        sz: 20,
-        bold: true,
-        color: { rgb: WHITE }
-      },
-      fill: { fgColor: { rgb: DARK_GREEN } },
-      alignment: {
-        horizontal: "left",
-        vertical: "center",
-        indent: 1
-      }
-    });
-
-    setHeight(r, 38);
-
-    // --------------------------------------------------
-    // 2. REGISTER SUBTITLE
-    // --------------------------------------------------
-
-    r = addRow(["DAILY TRANSACTION REGISTER"]);
-    mergeRow(r, 0, 9);
-
-    styleRange(r, 0, 9, {
-      font: {
-        name: "Aptos",
-        sz: 12,
-        bold: true,
-        color: { rgb: WHITE }
-      },
-      fill: { fgColor: { rgb: GREEN } },
-      alignment: {
-        horizontal: "left",
-        vertical: "center",
-        indent: 2
-      }
-    });
-
-    setHeight(r, 27);
-
-    // --------------------------------------------------
-    // 3. BUSINESS DATE / CURRENCY / STATUS
-    // --------------------------------------------------
-
-    r = addRow([
-      "BUSINESS DATE", "",
-      formatDate(date), "",
-      "CURRENCY", "",
-      "INDIAN RUPEE (₹)", "",
-      "DAY STATUS", "",
-    ]);
-
-    mergeRow(r, 0, 1);
-    mergeRow(r, 2, 3);
-    mergeRow(r, 4, 5);
-    mergeRow(r, 6, 7);
-    mergeRow(r, 8, 9);
-
-    styleRange(r, 0, 9, {
-      font: {
-        name: "Aptos",
-        sz: 10,
-        bold: true,
-        color: { rgb: GREEN }
-      },
-      fill: { fgColor: { rgb: "EAF2E7" } },
-      alignment: {
-        horizontal: "center",
-        vertical: "center"
-      },
-      border: {
-        bottom: { style: "thin", color: { rgb: BORDER } }
-      }
-    });
-
-    styleRange(r, 2, 3, {
-      font: {
-        name: "Aptos",
-        sz: 11,
-        bold: true,
-        color: { rgb: DARK_GREEN }
-      },
-      fill: { fgColor: { rgb: "EAF2E7" } },
-      alignment: { horizontal: "center", vertical: "center" }
-    });
-
-    styleRange(r, 8, 9, {
-      font: {
-        bold: true,
-        color: {
-          rgb: isClosed ? GREEN : "B7791F"
-        }
-      },
-      fill: {
-        fgColor: {
-          rgb: isClosed ? LIGHT_GREEN : "FFF2CC"
-        }
-      },
-      alignment: { horizontal: "center", vertical: "center" }
-    });
-
-    setHeight(r, 28);
-
-    // --------------------------------------------------
-    // 4. OPENING / CLOSING CASH AND COINS
-    // --------------------------------------------------
-
-    r = addRow([
-      "OPENING NOTES", "",
-      "OPENING COINS", "",
-      "CLOSING NOTES", "",
-      "CLOSING COINS", "",
-      "DAY RECORD", ""
-    ]);
-
-    mergePairs(r);
-
-    styleRange(r, 0, 9, {
-      font: {
-        name: "Aptos",
-        sz: 9,
-        bold: true,
-        color: { rgb: MUTED }
-      },
-      fill: { fgColor: { rgb: "F1F5EF" } },
-      alignment: { horizontal: "center", vertical: "center" }
-    });
-
-    setHeight(r, 23);
-
-    r = addRow([
-      openingNotes, "",
-      openingCoins, "",
-      closingNotes, "",
-      closingCoins, "",
-      day.Status || "No day record", ""
-    ]);
-
-    mergePairs(r);
-
-    styleRange(r, 0, 7, moneyStyle("F8FBF6", DARK_GREEN, 12));
-
-    styleRange(r, 8, 9, {
-      font: {
-        bold: true,
-        sz: 11,
-        color: { rgb: isClosed ? GREEN : "B7791F" }
-      },
-      fill: {
-        fgColor: {
-          rgb: isClosed ? LIGHT_GREEN : "FFF2CC"
-        }
-      },
-      alignment: { horizontal: "center", vertical: "center" }
-    });
-
-    setHeight(r, 32);
-
-    // --------------------------------------------------
-    // 5. FINANCIAL SUMMARY
-    // --------------------------------------------------
-
-    r = addRow([
-      "TOTAL REQUIRED", "",
-      "TOTAL RECEIVED", "",
-      "TOTAL REFUNDED", "",
-      "NET CASH CHANGE", "",
-      "CURRENT CASH IN HAND",
-      "OUTSTANDING DUE"
-    ]);
-
-    mergeRow(r, 0, 1);
-    mergeRow(r, 2, 3);
-    mergeRow(r, 4, 5);
-    mergeRow(r, 6, 7);
-
-    styleRange(r, 0, 9, {
-      font: {
-        name: "Aptos",
-        sz: 9,
-        bold: true,
-        color: { rgb: WHITE }
-      },
-      fill: { fgColor: { rgb: GREEN } },
-      alignment: { horizontal: "center", vertical: "center" }
-    });
-
-    setHeight(r, 26);
-
-    let totalRequired = 0;
-    let totalReceived = 0;
-    let totalRefunded = 0;
-    let totalNet = 0;
-    let totalDue = 0;
-
-    dayTransactions.forEach(t => {
-      totalRequired += number(t["Required Amount"]);
-      totalReceived += number(t["Received Amount"]);
-      totalRefunded += number(t["Refunded Amount"]);
-      totalNet += number(t["Net Cash Flow"]);
-      totalDue += number(t["Balance Due"]);
-    });
-
-    r = addRow([
-      totalRequired, "",
-      totalReceived, "",
-      totalRefunded, "",
-      totalNet, "",
-      currentCash,
-      totalDue
-    ]);
-
-    mergeRow(r, 0, 1);
-    mergeRow(r, 2, 3);
-    mergeRow(r, 4, 5);
-    mergeRow(r, 6, 7);
-
-    styleRange(r, 0, 7, moneyStyle("F3F8EF", DARK_GREEN, 13));
-
-    styleCell(r, 8, moneyStyle(LIGHT_GREEN, GREEN, 13));
-    styleCell(r, 9, moneyStyle("FFF0D9", "A45A00", 13));
-
-    setHeight(r, 36);
-
-    // --------------------------------------------------
-    // 6. TRANSACTION TABLE HEADER
-    // --------------------------------------------------
-
-    addRow([]);
-
-    r = addRow([
-      "SERIAL #",
-      "POLICY NUMBER / NAME",
-      "TRANSACTION DETAILS",
-      "AMOUNT REQUIRED",
-      "AMOUNT RECEIVED",
-      "AMOUNT REFUNDED",
-      "NET CASH FLOW",
-      "RUNNING BALANCE",
-      "BALANCE DUE",
-      "STATUS / REMARKS"
-    ]);
-
-    const tableHeaderRow = r;
-
-    styleRange(r, 0, 9, {
-      font: {
-        name: "Aptos",
-        sz: 10,
-        bold: true,
-        color: { rgb: WHITE }
-      },
-      fill: { fgColor: { rgb: GREEN } },
-      alignment: {
-        horizontal: "center",
-        vertical: "center",
-        wrapText: true
-      },
-      border: {
-        top: { style: "medium", color: { rgb: DARK_GREEN } },
-        bottom: { style: "medium", color: { rgb: DARK_GREEN } }
-      }
-    });
-
-    setHeight(r, 38);
-
-    // --------------------------------------------------
-    // 7. TRANSACTION ENTRIES
-    // --------------------------------------------------
-
-    dayTransactions.forEach((t, index) => {
-      const required = number(t["Required Amount"]);
-      const received = number(t["Received Amount"]);
-      const refunded = number(t["Refunded Amount"]);
-      const net = number(t["Net Cash Flow"]);
-      const due = number(t["Balance Due"]);
-
-      const cashEffect = t["Payment Mode"] === "Cash" ? net : 0;
-      runningBalance += cashEffect;
-
-      const transactionLabel = t.Type === "send"
-        ? "Send to Head"
-        : "";
-
-      const status = [
-        t.Status || "",
-        transactionLabel
-      ].filter(Boolean).join(" · ");
-
-      r = addRow([
-        t["Daily Serial"] || index + 1,
-        t["Policy / Name"] || "",
-        t.Details || "",
-        required,
-        received,
-        refunded,
-        net,
-        runningBalance,
-        due,
-        status
-      ]);
-
-      const rowFill = index % 2 === 0 ? WHITE : PALE_GREEN;
-
-      styleRange(r, 0, 9, {
-        font: {
-          name: "Aptos",
-          sz: 10,
-          color: { rgb: TEXT }
-        },
-        fill: { fgColor: { rgb: rowFill } },
-        alignment: {
-          vertical: "center",
-          horizontal: "left",
-          wrapText: true
-        },
-        border: {
-          bottom: { style: "thin", color: { rgb: BORDER } }
-        }
-      });
-
-      styleCell(r, 0, {
-        font: { bold: true, color: { rgb: GREEN } },
-        fill: { fgColor: { rgb: rowFill } },
-        alignment: { horizontal: "center", vertical: "center" },
-        border: {
-          bottom: { style: "thin", color: { rgb: BORDER } }
-        }
-      });
-
-      styleCell(r, 1, {
-        font: { bold: true, color: { rgb: TEXT } },
-        fill: { fgColor: { rgb: rowFill } },
-        alignment: { horizontal: "left", vertical: "center", wrapText: true },
-        border: {
-          bottom: { style: "thin", color: { rgb: BORDER } }
-        }
-      });
-
-      styleCell(r, 2, {
-        font: { color: { rgb: TEXT } },
-        fill: { fgColor: { rgb: rowFill } },
-        alignment: { horizontal: "left", vertical: "center", wrapText: true },
-        border: {
-          bottom: { style: "thin", color: { rgb: BORDER } }
-        }
-      });
-
-      for (let c = 3; c <= 8; c++) {
-        styleCell(r, c, {
-          font: {
-            name: "Aptos",
-            sz: 10,
-            color: { rgb: TEXT }
-          },
-          fill: { fgColor: { rgb: rowFill } },
-          alignment: { horizontal: "right", vertical: "center" },
-          numFmt: moneyFormat,
-          border: {
-            bottom: { style: "thin", color: { rgb: BORDER } }
-          }
-        });
-      }
-
-      // Highlight running balance.
-      styleCell(r, 7, {
-        font: { bold: true, color: { rgb: GREEN } },
-        fill: { fgColor: { rgb: "E7F1E2" } },
-        alignment: { horizontal: "right", vertical: "center" },
-        numFmt: moneyFormat,
-        border: {
-          bottom: { style: "thin", color: { rgb: BORDER } }
-        }
-      });
-
-      // Colour-coded transaction status.
-      let statusFill = LIGHT_GREEN;
-      let statusColor = GREEN;
-
-      const lowerStatus = String(t.Status || "").toLowerCase();
-
-      if (lowerStatus.includes("pending")) {
-        statusFill = "FCE8C3";
-        statusColor = "A45A00";
-      } else if (lowerStatus.includes("refund")) {
-        statusFill = "FCE4E4";
-        statusColor = "B42318";
-      }
-
-      styleCell(r, 9, {
-        font: {
-          bold: true,
-          sz: 9,
-          color: { rgb: statusColor }
-        },
-        fill: { fgColor: { rgb: statusFill } },
-        alignment: {
-          horizontal: "center",
-          vertical: "center",
-          wrapText: true
-        },
-        border: {
-          bottom: { style: "thin", color: { rgb: BORDER } }
-        }
-      });
-
-      setHeight(r, 27);
-    });
-
-    // --------------------------------------------------
-    // 8. EMPTY DAY MESSAGE
-    // --------------------------------------------------
-
-    if (dayTransactions.length === 0) {
-      r = addRow(["NO TRANSACTIONS RECORDED FOR THIS BUSINESS DAY"]);
-      mergeRow(r, 0, 9);
-
-      styleRange(r, 0, 9, {
-        font: {
-          italic: true,
-          color: { rgb: MUTED },
-          sz: 10
-        },
-        fill: { fgColor: { rgb: "F1F5EF" } },
-        alignment: {
-          horizontal: "center",
-          vertical: "center"
-        }
-      });
-
-      setHeight(r, 30);
-    }
-
-    // --------------------------------------------------
-    // 9. DAILY TOTAL
-    // --------------------------------------------------
-
-    r = addRow([
-      "DAILY TOTAL", "", "",
-      totalRequired,
-      totalReceived,
-      totalRefunded,
-      totalNet,
-      runningBalance,
-      totalDue,
-      ""
-    ]);
-
-    mergeRow(r, 0, 2);
-
-    styleRange(r, 0, 9, {
-      font: {
-        name: "Aptos",
-        sz: 10,
-        bold: true,
-        color: { rgb: WHITE }
-      },
-      fill: { fgColor: { rgb: DARK_GREEN } },
-      alignment: {
-        horizontal: "right",
-        vertical: "center"
-      },
-      border: {
-        top: { style: "medium", color: { rgb: DARK_GREEN } }
-      }
-    });
-
-    styleCell(r, 0, {
-      font: {
-        bold: true,
-        sz: 11,
-        color: { rgb: WHITE }
-      },
-      fill: { fgColor: { rgb: DARK_GREEN } },
-      alignment: { horizontal: "left", vertical: "center" },
-      border: {
-        top: { style: "medium", color: { rgb: DARK_GREEN } }
-      }
-    });
-
-    for (let c = 3; c <= 8; c++) {
-      styleCell(r, c, {
-        font: { bold: true, color: { rgb: WHITE } },
-        fill: { fgColor: { rgb: DARK_GREEN } },
-        alignment: { horizontal: "right", vertical: "center" },
-        numFmt: moneyFormat,
-        border: {
-          top: { style: "medium", color: { rgb: DARK_GREEN } }
-        }
-      });
-    }
-
-    setHeight(r, 32);
-
-    // --------------------------------------------------
-    // 10. CLOSING REMARKS
-    // --------------------------------------------------
-
-    if (day.Remarks) {
-      r = addRow([`CLOSING REMARKS: ${day.Remarks}`]);
-      mergeRow(r, 0, 9);
-
-      styleRange(r, 0, 9, {
-        font: {
-          italic: true,
-          color: { rgb: MUTED },
-          sz: 10
-        },
-        fill: { fgColor: { rgb: "F1F5EF" } },
-        alignment: {
-          horizontal: "left",
-          vertical: "center",
-          wrapText: true,
-          indent: 1
-        }
-      });
-
-      setHeight(r, 30);
-    }
-
-    // --------------------------------------------------
-    // 11. SEPARATION BETWEEN DAYS
-    // --------------------------------------------------
-
-    if (dayIndex < dates.length - 1) {
-      addRow([]);
-      setHeight(data.length - 1, 12);
-
-      addRow([]);
-      setHeight(data.length - 1, 12);
-    }
-  });
-
-  if (dates.length === 0) {
-    const r = addRow(["NO BUSINESS DAYS RECORDED YET"]);
-    mergeRow(r, 0, 9);
-
-    styleRange(r, 0, 9, {
-      font: { bold: true, color: { rgb: GREEN }, sz: 12 },
-      fill: { fgColor: { rgb: PALE_GREEN } },
-      alignment: { horizontal: "center", vertical: "center" }
-    });
-  }
-
-  // --------------------------------------------------
-  // 12. CREATE AND FORMAT WORKSHEET
-  // --------------------------------------------------
-
-  const ws = XLSX.utils.aoa_to_sheet(data);
-
-  ws["!merges"] = merges;
-
-  ws["!cols"] = [
-    { wch: 10 },
-    { wch: 23 },
-    { wch: 34 },
-    { wch: 16 },
-    { wch: 16 },
-    { wch: 16 },
-    { wch: 17 },
-    { wch: 19 },
-    { wch: 15 },
-    { wch: 24 }
-  ];
-
-  ws["!rows"] = data.map((_, index) => ({
-    hpt: rowHeights[index] || 23
+    return `${String(day).padStart(2, "0")}${String(month).padStart(2, "0")}${year}`;
   }));
 
-  // Apply cell styles, including blank cells in merged areas.
-  styles.forEach(({ row, col, style }) => {
-    const address = XLSX.utils.encode_cell({
-      r: row,
-      c: col
-    });
+  // Remove only prior generated day tabs represented in the app's data, plus the old combined register.
+  for (const name of [...workbook.SheetNames]) {
+    if (name === REGISTER_SHEET || generatedDayNames.has(name)) {
+      delete workbook.Sheets[name];
+    }
+  }
+  workbook.SheetNames = workbook.SheetNames.filter(name =>
+    name !== REGISTER_SHEET && !generatedDayNames.has(name)
+  );
 
-    if (!ws[address]) {
-      ws[address] = { t: "s", v: "" };
+  const border = {
+    top: { style: "thin", color: { rgb: "B7C9B8" } },
+    bottom: { style: "thin", color: { rgb: "B7C9B8" } },
+    left: { style: "thin", color: { rgb: "B7C9B8" } },
+    right: { style: "thin", color: { rgb: "B7C9B8" } }
+  };
+  const titleStyle = { font: { name: "Aptos Display", sz: 16, bold: true, color: { rgb: "FFFFFF" } }, fill: { fgColor: { rgb: "245B35" } }, alignment: { horizontal: "center", vertical: "center" } };
+  const headerStyle = { font: { name: "Aptos", sz: 10, bold: true, color: { rgb: "FFFFFF" } }, fill: { fgColor: { rgb: "245B35" } }, alignment: { horizontal: "center", vertical: "center", wrapText: true }, border };
+  const labelStyle = { font: { name: "Aptos", sz: 10, bold: true, color: { rgb: "183F29" } }, fill: { fgColor: { rgb: "E2EFDA" } }, alignment: { vertical: "center" }, border };
+  const valueStyle = { font: { name: "Aptos", sz: 10, color: { rgb: "24352A" } }, alignment: { horizontal: "right", vertical: "center" }, numFmt: moneyFormat, border };
+  const totalStyle = { ...valueStyle, font: { name: "Aptos", sz: 10, bold: true, color: { rgb: "183F29" } }, fill: { fgColor: { rgb: "E2EFDA" } } };
+
+  const dayName = date => {
+    const [y, m, d] = date.split("-").map(Number);
+    return `${String(d).padStart(2, "0")}${String(m).padStart(2, "0")}${y}`.slice(0, 31);
+  };
+  const col = n => XLSX.utils.encode_col(n);
+
+  for (const date of dates) {
+    const day = dailyRecords.find(r => dateKey(r.Date) === date) || {};
+    const tx = transactions.filter(t => dateKey(t.Date) === date)
+      .sort((a, b) => number(a["Daily Serial"]) - number(b["Daily Serial"]));
+    const dayOfficeEntries = officeEntries.filter(entry => dateKey(entry.Date) === date);
+    const dayHeadEntries = headEntries.filter(entry => dateKey(entry.Date) === date);
+    const dayRefundEntries = refundEntries.filter(entry => dateKey(entry.Date) === date);
+    const dayCustomerReceipts = customerReceipts.filter(entry => dateKey(entry.Date) === date);
+    const limits = platformRows.filter(r => dateKey(r.Date) === date);
+    const platformKeys = ["P1", "P2", "P3"];
+    const platformNames = ["PLATFORM 1", "PLATFORM 2", "REMITR"];
+    const openingCash = number(day["Opening Cash"]);
+    const openingCoins = number(day["Opening Coins"]);
+    const closingCash = day["Closing Cash"] === "" ? "" : number(day["Closing Cash"]);
+    const closingCoins = day["Closing Coins"] === "" ? "" : number(day["Closing Coins"]);
+    const cashIn = tx.reduce((sum, t) => {
+      const explicit = t["Cash Received"];
+      if (explicit !== "" && explicit !== undefined) return sum + number(explicit);
+      return sum + (t["Payment Mode"] === "Cash" ? number(t["Received Amount"]) : 0);
+    }, 0) + dayHeadEntries.filter(e => e.Action === "Receive" && e.Mode === "Cash").reduce((sum, e) => sum + number(e.Amount), 0)
+      + dayCustomerReceipts.reduce((sum, entry) => sum + number(entry["Cash Amount"]), 0);
+    const ledgerRefundByTx = new Map();
+    refundEntries.forEach(e => ledgerRefundByTx.set(e["Transaction ID"], (ledgerRefundByTx.get(e["Transaction ID"]) || 0) + number(e.Amount)));
+    const legacyRefunds = tx.reduce((sum, t) => sum + Math.max(0, number(t["Refunded Amount"]) - (ledgerRefundByTx.get(t["Transaction ID"]) || 0)), 0);
+    const cashOut = dayRefundEntries.reduce((sum, e) => sum + number(e.Amount), 0) + legacyRefunds
+      + tx.filter(t => t.Type === "send").reduce((sum, t) => sum + Math.abs(Math.min(0, number(t["Net Cash Flow"]))), 0)
+      + dayHeadEntries.filter(e => e.Action === "Send" && e.Mode === "Cash").reduce((sum, e) => sum + number(e.Amount), 0);
+    const expectedCash = openingCash + cashIn - cashOut;
+    const expectedCoins = openingCoins;
+
+    const customerCollection = tx.filter(t => t.Type === "receive")
+      .reduce((sum, t) => sum + number(t["Required Amount"]), 0);
+    const customerDueReceipts = dayCustomerReceipts.reduce((sum, entry) => sum + number(entry.Amount), 0);
+    const headPayments = tx.filter(t => t.Type === "send")
+      .reduce((sum, t) => sum + Math.abs(number(t["Net Cash Flow"])), 0)
+      + dayHeadEntries.filter(e => e.Action === "Send").reduce((sum, e) => sum + number(e.Amount), 0);
+    const headReceipts = dayHeadEntries.filter(e => e.Action === "Receive").reduce((sum, e) => sum + number(e.Amount), 0);
+    const customerRefunds = dayRefundEntries.reduce((sum, e) => sum + number(e.Amount), 0) + legacyRefunds;
+    const receiptItems = [];
+    if (customerCollection > 0) {
+      receiptItems.push({ label: "COLLECTION", amount: customerCollection });
+    }
+    dayCustomerReceipts.forEach(entry => receiptItems.push({ label: `CUSTOMER DUE — ${entry.Customer || entry["Transaction ID"]}`, amount: number(entry.Amount) }));
+    dayHeadEntries.filter(entry => entry.Action === "Receive")
+      .forEach(entry => receiptItems.push({ label: entry.Head || "RECEIVED FROM HEAD", amount: number(entry.Amount) }));
+    dayOfficeEntries.filter(entry => entry.Section === "Receipt")
+      .forEach(entry => receiptItems.push({ label: entry.Category, amount: number(entry.Amount) }));
+
+    const paymentItems = [];
+    const transactionDateById = new Map(transactions.map(t => [t["Transaction ID"], dateKey(t.Date)]));
+    // Same-day customer refunds are shown in the original receipt row's REFUND
+    // column and are already netted from AMOUNT. Only a refund paid on a later
+    // date appears as a standalone cash payment on that later day's register.
+    dayRefundEntries
+      .filter(entry => transactionDateById.get(entry["Transaction ID"]) !== date)
+      .forEach(entry => paymentItems.push({ amount: number(entry.Amount) }));
+    tx.filter(t => t.Type === "send")
+      .forEach(t => paymentItems.push({ amount: Math.abs(number(t["Net Cash Flow"])) }));
+    dayHeadEntries.filter(entry => entry.Action === "Send")
+      .forEach(entry => paymentItems.push({ amount: number(entry.Amount) }));
+    dayOfficeEntries.filter(entry => entry.Section === "Payment")
+      .forEach(entry => paymentItems.push({ amount: number(entry.Amount) }));
+
+    // Same-day refunds stay on the original receipt row. A refund paid on a
+    // later date gets a payment row on the actual repayment date.
+    const sameDayTransactionIds = new Set(tx.map(t => t["Transaction ID"]));
+    const separateRefundEntries = dayRefundEntries.filter(entry =>
+      !sameDayTransactionIds.has(entry["Transaction ID"])
+    );
+    const cashMovements = [
+      ...tx.map(t => ({ kind: "transaction", record: t, at: t["Created At"] || "", serial: number(t["Daily Serial"]) })),
+      ...dayHeadEntries.filter(e => e.Mode === "Cash").map(e => ({ kind: "head", record: e, at: e["Created At"] || "", serial: 0 })),
+      ...separateRefundEntries.map(e => ({ kind: "refund", record: e, at: e["Created At"] || "", serial: 0 })),
+      ...dayCustomerReceipts.map(e => ({ kind: "customer-receipt", record: e, at: e["Created At"] || "", serial: 0 }))
+    ].sort((a, b) => String(a.at).localeCompare(String(b.at)) || a.serial - b.serial);
+
+    const firstMovementRow = 11;
+    const lastMovementRow = firstMovementRow + cashMovements.length - 1;
+    const dailySummaryTitleRow = Math.max(13, lastMovementRow + 2);
+    const expectedCashRow = dailySummaryTitleRow + 1;
+    const expectedCoinsRow = dailySummaryTitleRow + 2;
+    const differencesRow = dailySummaryTitleRow + 3;
+    const remarksRow = dailySummaryTitleRow + 4;
+    const noteRow = dailySummaryTitleRow + 6;
+    const rpHeaderRow = dailySummaryTitleRow + 8;
+    const rpDataStart = rpHeaderRow + 1;
+    const rpRows = Math.max(receiptItems.length, paymentItems.length, 1);
+    const rpTotalRow = rpDataStart + rpRows;
+    const lastRow = rpTotalRow;
+    const aoa = Array.from({ length: lastRow }, () => Array(11).fill(""));
+    const set = (r, c, v) => { aoa[r - 1][c - 1] = (typeof v === "string" && v.startsWith("=")) ? { f: v.slice(1) } : (v ?? ""); };
+
+    // Original cash-register header and opening/closing fields.
+    set(1, 1, new Date(`${date}T00:00:00`));
+    set(2, 1, "OPENING CASH"); set(2, 3, openingCash);
+    set(2, 8, "CLOSING CASH"); set(2, 9, closingCash);
+    set(3, 1, "OPENING COINS"); set(3, 3, openingCoins);
+    set(3, 8, "CLOSING COINS"); set(3, 9, closingCoins);
+
+    for (let i = 0; i < 3; i++) {
+      const platform = platformKeys[i];
+      const item = limits.find(x => x.Platform === platform) || {};
+      const dailyLimit = number(item["Daily Limit"]);
+      const row = 4 + i;
+      set(row, 8, "LIMIT");
+      set(row, 9, dailyLimit);
+      set(row, 10, platformNames[i]);
+    }
+    set(7, 3, "=SUM(C2:C6)");
+    set(7, 8, "TOTAL");
+    set(7, 9, "=SUM(I2:I6)");
+
+    const headers = ["SR NO", "PARTICULARS", "AMOUNT", "RECD", "REFUND", "CHQ/QR", "PAYMENT", "NET"];
+    headers.forEach((h, i) => set(10, i + 1, h));
+
+    for (let i = 0; i < cashMovements.length; i++) {
+      const excelRow = firstMovementRow + i;
+      const movement = cashMovements[i];
+      set(excelRow, 1, i + 1);
+      if (movement.kind === "transaction") {
+        const t = movement.record;
+        const cashReceived = t["Cash Received"] !== "" && t["Cash Received"] !== undefined
+          ? number(t["Cash Received"])
+          : (t["Payment Mode"] === "Cash" ? number(t["Received Amount"]) : 0);
+        const nonCash = t["CHQ/QR Received"] !== "" && t["CHQ/QR Received"] !== undefined
+          ? number(t["CHQ/QR Received"])
+          : (t["Payment Mode"] === "Other" ? number(t["Received Amount"]) : 0);
+        set(excelRow, 2, [t["Policy / Name"], t.Details].filter(Boolean).join(" — "));
+        const received = t.Type === "receive"
+          ? (t["Received Amount"] !== "" && t["Received Amount"] !== undefined
+            ? number(t["Received Amount"])
+            : cashReceived + nonCash)
+          : 0;
+        const transactionRefundEntries = refundEntries.filter(e => e["Transaction ID"] === t["Transaction ID"]);
+        const ledgerRefunded = transactionRefundEntries
+          .reduce((sum, e) => sum + number(e.Amount), 0);
+        const sameDayLedgerRefunded = transactionRefundEntries
+          .filter(e => dateKey(e.Date) === date)
+          .reduce((sum, e) => sum + number(e.Amount), 0);
+        const legacyRefunded = Math.max(0, number(t["Refunded Amount"]) - ledgerRefunded);
+        const sameDayRefunded = sameDayLedgerRefunded + legacyRefunded;
+        // AMOUNT is the net amount retained from this receipt. RECD and
+        // CHQ/QR preserve the gross tender split; REFUND records the actual
+        // customer refund. Do not duplicate that refund in PAYMENT.
+        set(excelRow, 3, t.Type === "receive" ? Math.max(0, received - sameDayRefunded) : 0);
+        set(excelRow, 4, t.Type === "receive" ? cashReceived : 0);
+        set(excelRow, 5, t.Type === "receive" ? sameDayRefunded : 0);
+        set(excelRow, 6, t.Type === "receive" ? nonCash : 0);
+        const payment = t.Type === "send" ? Math.abs(number(t["Net Cash Flow"])) : 0;
+        set(excelRow, 7, payment);
+      } else if (movement.kind === "head") {
+        const e = movement.record;
+        const receivedFromHead = e.Action === "Receive" ? number(e.Amount) : 0;
+        const paymentToHead = e.Action === "Send" ? number(e.Amount) : 0;
+        set(excelRow, 2, `${e.Action === "Send" ? "To" : "From"} Head — ${e.Head}`);
+        set(excelRow, 3, receivedFromHead);
+        set(excelRow, 4, receivedFromHead);
+        set(excelRow, 5, `=C${excelRow}-D${excelRow}`);
+        set(excelRow, 6, 0);
+        set(excelRow, 7, paymentToHead);
+      } else if (movement.kind === "refund") {
+        const e = movement.record;
+        set(excelRow, 2, `Customer Refund — ${e.Customer || e["Transaction ID"]}`);
+        set(excelRow, 3, 0); set(excelRow, 4, 0);
+        set(excelRow, 5, `=C${excelRow}-D${excelRow}`);
+        set(excelRow, 6, 0); set(excelRow, 7, number(e.Amount));
+      } else if (movement.kind === "customer-receipt") {
+        const e = movement.record;
+        set(excelRow, 2, `Customer Due Received — ${e.Customer || e["Transaction ID"]}`);
+        set(excelRow, 3, number(e.Amount));
+        set(excelRow, 4, number(e["Cash Amount"]));
+        set(excelRow, 5, 0);
+        set(excelRow, 6, number(e["CHQ/QR Amount"]));
+        set(excelRow, 7, 0);
+      }
+      set(excelRow, 8, i === 0
+        ? `=C7+C${excelRow}-G${excelRow}`
+        : `=H${excelRow - 1}+C${excelRow}-G${excelRow}`);
     }
 
-    ws[address].s = style;
-  });
+    const coinRefunds = dayRefundEntries.reduce((sum, entry) => sum + number(entry["Coins Amount"]), 0);
+    const legacyCoinRefunds = 0;
+    const notesRefunds = dayRefundEntries.reduce((sum, entry) => sum + (
+      entry["Notes Amount"] !== "" && entry["Notes Amount"] !== undefined
+        ? number(entry["Notes Amount"]) : number(entry.Amount)
+    ), 0) + legacyRefunds;
+    const cashSendOut = tx.filter(t => t.Type === "send")
+      .reduce((sum, t) => sum + Math.abs(number(t["Net Cash Flow"])), 0)
+      + dayHeadEntries.filter(e => e.Action === "Send" && e.Mode === "Cash")
+        .reduce((sum, e) => sum + number(e.Amount), 0);
+    const cashReceiveIn = tx.reduce((sum, t) => sum + (
+      t["Cash Received"] !== "" && t["Cash Received"] !== undefined
+        ? number(t["Cash Received"]) : (t["Payment Mode"] === "Cash" ? number(t["Received Amount"]) : 0)
+    ), 0) + dayHeadEntries.filter(e => e.Action === "Receive" && e.Mode === "Cash")
+      .reduce((sum, e) => sum + number(e.Amount), 0)
+      + dayCustomerReceipts.reduce((sum, entry) => sum + number(entry["Cash Amount"]), 0);
+    const expectedNotesCash = openingCash + cashReceiveIn - notesRefunds - cashSendOut;
+    const expectedCoinBalance = openingCoins - coinRefunds - legacyCoinRefunds;
 
-  // Keep Daily Register as the first worksheet.
-  workbook.Sheets[REGISTER_SHEET] = ws;
+    set(dailySummaryTitleRow, 1, "DAILY CASH SUMMARY");
+    set(expectedCashRow, 1, "EXPECTED CASH"); set(expectedCashRow, 3, expectedNotesCash);
+    set(expectedCashRow, 5, "ACTUAL CASH"); set(expectedCashRow, 7, closingCash);
+    set(expectedCoinsRow, 1, "EXPECTED COINS"); set(expectedCoinsRow, 3, expectedCoinBalance);
+    set(expectedCoinsRow, 5, "ACTUAL COINS"); set(expectedCoinsRow, 7, closingCoins);
+    set(differencesRow, 1, "CASH DIFFERENCE"); set(differencesRow, 3, closingCash === "" ? "" : `=I2-C${expectedCashRow}`);
+    set(differencesRow, 5, "COINS DIFFERENCE"); set(differencesRow, 7, closingCoins === "" ? "" : `=I3-C${expectedCoinsRow}`);
+    set(remarksRow, 1, "REMARKS"); set(remarksRow, 3, day.Remarks || "");
+    set(noteRow, 1, "AMOUNT = GROSS RECEIPT − CUSTOMER REFUND | REFUND = ACTUAL CUSTOMER REFUND | NET = PREVIOUS NET + AMOUNT − PAYMENT");
 
-  workbook.SheetNames = [
-    REGISTER_SHEET,
-    ...workbook.SheetNames.filter(name => name !== REGISTER_SHEET)
-  ];
+    // Compact side-by-side Receipts / Payments view matching the supplied layout.
+    set(rpHeaderRow, 2, "RECEIPTS");
+    set(rpHeaderRow, 7, "PAYMENTS");
+    for (let i = 0; i < rpRows; i++) {
+      const row = rpDataStart + i;
+      if (i === 0) {
+        set(row, 1, new Date(`${date}T00:00:00`));
+        if (receiptItems.length === 0) set(row, 2, "");
+      }
+      const receipt = receiptItems[i];
+      if (receipt) {
+        set(row, 2, receipt.label);
+        set(row, 5, receipt.amount);
+      }
+      const payment = paymentItems[i];
+      if (payment) set(row, 7, payment.amount);
+    }
+    set(rpTotalRow, 2, "TOTAL");
+    set(rpTotalRow, 5, `=SUM(E${rpDataStart}:E${rpTotalRow - 1})`);
+    set(rpTotalRow, 7, `=SUM(G${rpDataStart}:G${rpTotalRow - 1})`);
 
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws["!merges"] = [
+      { s: { r: dailySummaryTitleRow - 1, c: 0 }, e: { r: dailySummaryTitleRow - 1, c: 7 } },
+      { s: { r: noteRow - 1, c: 0 }, e: { r: noteRow - 1, c: 7 } }
+    ];
+    ws["!cols"] = [
+      { wch: 14 }, { wch: 22 }, { wch: 12 }, { wch: 10 }, { wch: 14 },
+      { wch: 4 }, { wch: 14 }, { wch: 15 }, { wch: 12 }, { wch: 12 }, { wch: 12 }
+    ];
+    ws["!rows"] = Array.from({ length: lastRow }, (_, i) => ({
+      hpt: i === 0 ? 30 : (i === 9 ? 28 : 21)
+    }));
+
+    if (ws.A1) {
+      ws.A1.s = { font: { name: "Aptos", sz: 10, bold: true }, alignment: { horizontal: "left" } };
+      ws.A1.z = "dd/mm/yyyy";
+    }
+    for (const r of [2, 3, 4, 5, 6]) {
+      for (const c of [0, 7, 9]) {
+        const address = XLSX.utils.encode_cell({ r: r - 1, c });
+        if (ws[address]) ws[address].s = labelStyle;
+      }
+      for (const c of [2, 8]) {
+        const address = XLSX.utils.encode_cell({ r: r - 1, c });
+        if (ws[address]) ws[address].s = valueStyle;
+      }
+    }
+    for (const address of ["C7", "I7"]) {
+      if (ws[address]) ws[address].s = totalStyle;
+    }
+    for (let c = 0; c < 8; c++) {
+      const address = XLSX.utils.encode_cell({ r: 9, c });
+      if (ws[address]) ws[address].s = headerStyle;
+    }
+    for (let r = 10; r < 10 + cashMovements.length; r++) {
+      for (let c = 0; c < 8; c++) {
+        const address = XLSX.utils.encode_cell({ r, c });
+        if (!ws[address]) ws[address] = { t: "s", v: "" };
+        if (c === 0) {
+          ws[address].s = { font: { name: "Aptos", sz: 10 }, alignment: { horizontal: "center", vertical: "center" }, border };
+          ws[address].z = "0";
+        } else if (c === 1) {
+          ws[address].s = { alignment: { vertical: "center" }, border };
+        } else {
+          ws[address].s = valueStyle;
+        }
+      }
+    }
+    for (let r = 10; r < 10 + cashMovements.length; r++) {
+      for (const c of [2, 3, 4, 5, 6, 7]) {
+        const address = XLSX.utils.encode_cell({ r, c });
+        if (ws[address]) ws[address].z = moneyFormat;
+      }
+    }
+    for (let c = 0; c < 8; c++) {
+      const address = XLSX.utils.encode_cell({ r: dailySummaryTitleRow - 1, c });
+      if (!ws[address]) ws[address] = { t: "s", v: "" };
+      ws[address].s = titleStyle;
+      const noteAddress = XLSX.utils.encode_cell({ r: noteRow - 1, c });
+      if (!ws[noteAddress]) ws[noteAddress] = { t: "s", v: "" };
+      ws[noteAddress].s = { font: { name: "Aptos", sz: 9, italic: true, color: { rgb: "66736A" } } };
+    }
+    for (const r of [expectedCashRow, expectedCoinsRow, differencesRow]) {
+      for (let c = 0; c < 8; c++) {
+        const address = XLSX.utils.encode_cell({ r: r - 1, c });
+        if (ws[address] && [0, 2, 4, 6].includes(c)) ws[address].s = totalStyle;
+      }
+    }
+    for (const r of [expectedCashRow, expectedCoinsRow, differencesRow]) {
+      for (const c of [2, 6]) {
+        const address = XLSX.utils.encode_cell({ r: r - 1, c });
+        if (ws[address]) ws[address].z = moneyFormat;
+      }
+    }
+    for (let c = 0; c < 7; c++) {
+      const address = XLSX.utils.encode_cell({ r: rpHeaderRow - 1, c });
+      if (!ws[address]) ws[address] = { t: "s", v: "" };
+      if (c === 1 || c === 6) ws[address].s = titleStyle;
+    }
+    for (let r = rpDataStart - 1; r < rpTotalRow; r++) {
+      for (const c of [0, 1, 4, 6]) {
+        const address = XLSX.utils.encode_cell({ r, c });
+        if (!ws[address]) ws[address] = { t: "s", v: "" };
+        ws[address].s = (r === rpTotalRow - 1) ? totalStyle
+          : (c === 4 || c === 6 ? valueStyle : { alignment: { vertical: "center" }, border });
+      }
+      for (const c of [4, 6]) {
+        const address = XLSX.utils.encode_cell({ r, c });
+        if (ws[address]) ws[address].z = moneyFormat;
+      }
+    }
+    if (ws[XLSX.utils.encode_cell({ r: rpDataStart - 1, c: 0 })]) {
+      ws[XLSX.utils.encode_cell({ r: rpDataStart - 1, c: 0 })].z = "m/d/yy";
+    }
+    ws["!autofilter"] = { ref: `A10:H${Math.max(10, lastMovementRow)}` };
+    ws["!freeze"] = { xSplit: 2, ySplit: 10 };
+    ws["!pageSetup"] = { orientation: "landscape", fitToWidth: 1, fitToHeight: 0 };
+
+    const name = dayName(date);
+    if (workbook.Sheets[name]) {
+      // Preserve a user sheet with a colliding date-like name rather than overwrite it.
+      let suffix = 2;
+      let unique = `${name}_${suffix}`;
+      while (workbook.Sheets[unique]) unique = `${name}_${++suffix}`;
+      workbook.Sheets[unique] = ws;
+      workbook.SheetNames.push(unique);
+    } else {
+      workbook.Sheets[name] = ws;
+      workbook.SheetNames.push(name);
+    }
+  }
+
+  // Keep internal data sheets first, followed by daily tabs in date order.
+  const internal = workbook.SheetNames.filter(name => baseSheets.has(name));
+  const generated = workbook.SheetNames.filter(name => !baseSheets.has(name));
+  workbook.SheetNames = [...generated, ...internal];
   workbook.Workbook = workbook.Workbook || {};
   workbook.Workbook.Views = [{ activeTab: 0 }];
+  workbook.Workbook.CalcPr = { calcMode: "auto", fullCalcOnLoad: true, forceFullCalc: true };
 }
 
 
