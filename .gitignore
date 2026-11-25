@@ -1,0 +1,6 @@
+# Never commit live financial records
+*.xlsx
+*.xls
+!templates/Office_Cash_Register_Template.xlsx
+~$*
+.DS_Store
